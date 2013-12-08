@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style type="text/css">
+        html,body{padding: 0;margin:0;}
+    </style>
+    <script type="text/javascript" src="http://api.map.baidu.com/api?v=1.4"></script>
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
+    <script type="text/javascript">
+        $(function() {
+            var map=initMap();
+            function initMap () {
+                $("#map").height($(window).height());
+                var map = new BMap.Map('map');
+                map.enableScrollWheelZoom();
+                var point = new BMap.Point(121.480, 31.235);  // 创建点坐标
+                map.centerAndZoom(point, 15); 
+                map.addControl(new BMap.NavigationControl());  
+                map.addControl(new BMap.ScaleControl());  
+                map.addControl(new BMap.OverviewMapControl());  
+                map.addControl(new BMap.MapTypeControl());  
+                map.addControl(new BMap.MousePositionControl());  
+                map.addControl(new BMap.NearSearch());  
+                map.setCurrentCity("上海"); // 仅当设置城市信息时，MapTypeControl的切换功能才能可用
+                return map;
+            }
+            
+        });
+
+        BMap.NearSearch=function(){
+            this.defaultAnchor = BMAP_ANCHOR_BOTTOM_RIGHT;
+            this.defaultOffset = new BMap.Size(10, 50);
+            this.dis=7;
+            this.step=0;
+            this.point=null;
+            this.markers=[];
+            this.polygons=[];
+        }
+        BMap.NearSearch.prototype = new BMap.Control();     
+        BMap.NearSearch.prototype.initialize = function(map){
+            var _this=this;
+            function requestNearby () {
+                if (!_this.point)
+                    return;
+                _this.step=0;
+                $.get("/near/"+_this.dis,_this.point,function(results){
+                   renderResult(results,true); 
+                });
+            }
+            function requestStep () {
+                if (!_this.point)
+                    return;
+                _this.step++;
+                $.get("/step/"+_this.dis+"/"+_this.step,_this.point,function(results){
+                   renderResult(results,false,_this.step+"_"); 
+                });
+            }
+            function renderResult(results,clear,prefix){
+                var poi=results.content.poi;
+                $(".ret").html('ret:'+poi.length);
+                $(".time").html('time:'+results.time);
+                $(".pois").html('pois:'+results.content.count);
+                if (clear){
+                     $(_this.markers).each(function(index,marker){
+                        try{
+                            map.removeOverlay(marker);
+                        }catch(e){}
+                    });
+                    $(_this.polygons).each(function(index,polygon){
+                        try{
+                            map.removeOverlay(polygon);
+                        }catch(e){}
+                    });   
+                    _this.markers=[];
+                    _this.polygons=[];
+                }
+                $(poi).each(function (index,data) {
+                    drawPoi(data,index,prefix);
+                });
+                $(results.content.bbox).each(function (index,data) {
+                    drawBBox(data);
+                });                
+            }
+            function drawPoi(poi,index,prefix){
+                prefix=prefix||"";
+                var marker = new BMap.Marker(new BMap.Point(poi.lon, poi.lat));
+                _this.markers.push(marker);
+                var label=new BMap.Label(prefix+index);
+                label.setOffset(new BMap.Size(4,1));
+                marker.setLabel(label);
+                map.addOverlay(marker);
+            }
+            function drawBBox(bbox){
+                var polygon = new BMap.Polygon([
+                  new BMap.Point(bbox[1],bbox[0]),
+                  new BMap.Point(bbox[3],bbox[0]),
+                  new BMap.Point(bbox[3],bbox[2]),
+                  new BMap.Point(bbox[1],bbox[2]),
+                ], {strokeColor:"blue", strokeWeight:1, strokeOpacity:0.3});
+                _this.polygons.push(polygon);
+                map.addOverlay(polygon);
+            }
+            var div = $("<div></div>");
+            div.append("<span>&nbsp;</span><span class='dis'>dis:7</span>").
+                append("<span>&nbsp;</span><span class='ret'></span>").
+                append("<span>&nbsp;</span><span class='point'></span>").
+                append("<span>&nbsp;</span><span class='time'></span>").
+                append("<span>&nbsp;</span><span class='pois'></span>").
+                append("<button class='larger'>扩大</button>").
+                append("<button class='smaller'>缩小</button>").
+                append("<button class='step'>扩展</button>");
+            div.css({'background-color':'#eee',
+                'border':'1px solid #aaa',
+                'font-size':'12px'
+            });
+            map.addEventListener('click',function(evt) {
+                _this.step=0;
+                $(".point").html('point:'+evt.point.lng+','+evt.point.lat);
+                _this.point=evt.point;
+                requestNearby();
+            })
+            map.getContainer().appendChild(div.get(0));
+            $(".smaller").click(function(){
+                _this.dis++;
+                if (_this.dis>7)
+                    _this.dis=7;
+                requestNearby();
+                $(".dis").html('dis:'+_this.dis);
+            });
+            $(".larger").click(function(){
+                _this.dis--;
+                if (_this.dis<5)
+                    _this.dis=5;
+                requestNearby();
+                $(".dis").html('dis:'+_this.dis);
+            });
+            $(".step").click(function(){
+                requestStep();
+            })
+            return div.get(0);
+        }
+
+
+        BMap.MousePositionControl=function(){
+          // 默认停靠位置和偏移量
+          this.defaultAnchor = BMAP_ANCHOR_BOTTOM_RIGHT;
+          this.defaultOffset = new BMap.Size(10, 10);
+        }       
+
+        BMap.MousePositionControl.prototype = new BMap.Control();       
+
+        BMap.MousePositionControl.prototype.initialize = function(map){
+          var div = document.createElement("div");
+          div.appendChild(document.createTextNode("X:Y:"));
+          div.style.cursor = "pointer";
+          div.style.border = "1px solid #aaa";
+          div.style.backgroundColor = "#eee";
+
+          map.addEventListener('mousemove',function(evt) {
+            div.innerHTML="lng:"+evt.point.lng.toFixed(6) +" lat:"+evt.point.lat.toFixed(6);
+          })
+          map.getContainer().appendChild(div);
+          return div;
+        }
+
+    </script>
+</head>
+<body>
+    <div style='width:100%;' id="map"></div>
+</body>
+</html>
